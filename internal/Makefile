@@ -5,7 +5,7 @@ GOFLAGS := -v
 
 # Build the application
 build:
-	go build \$(GOFLAGS) -o bin/server ./cmd/server
+	go build $(GOFLAGS) -o bin/server ./cmd/server
 
 # Run the application
 run:
@@ -24,9 +24,5 @@ lint:
 clean:
 	rm -rf bin/
 	go clean
-
-# Install development dependencies
-dev-deps:
-	# Add commands to install development tools
 
 .DEFAULT_GOAL := build
