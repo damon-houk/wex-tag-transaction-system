@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/damon-houk/wex-tag-transaction-system/internal/application/service"
+	"github.com/damon-houk/wex-tag-transaction-system/internal/infrastructure/api"
 	"github.com/damon-houk/wex-tag-transaction-system/internal/infrastructure/db"
 	"github.com/damon-houk/wex-tag-transaction-system/internal/infrastructure/handler"
 	"github.com/dgraph-io/badger/v3"
@@ -34,15 +35,21 @@ func main() {
 	// Initialize repositories
 	txRepo := db.NewBadgerTransactionRepository(badgerDB)
 
+	// Initialize API clients
+	treasuryAPI := api.NewTreasuryAPIClient(nil) // Use default HTTP client
+
 	// Initialize services
 	txService := service.NewTransactionService(txRepo)
+	conversionService := service.NewConversionService(txRepo, treasuryAPI)
 
 	// Initialize handlers
 	txHandler := handler.NewTransactionHandler(txService)
+	conversionHandler := handler.NewConversionHandler(conversionService)
 
 	// Setup router
 	router := mux.NewRouter()
 	txHandler.RegisterRoutes(router)
+	conversionHandler.RegisterRoutes(router)
 
 	// Start server
 	log.Println("Server listening on :8080")
