@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/yourusername/wex-tag-transaction-system/internal/domain/entity"
+	"github.com/damon-houk/wex-tag-transaction-system/internal/domain/entity"
 )
 
 // ExchangeRateRepository defines the interface for exchange rate access

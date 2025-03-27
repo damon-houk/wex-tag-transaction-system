@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 
-	"github.com/yourusername/wex-tag-transaction-system/internal/domain/entity"
+	"github.com/damon-houk/wex-tag-transaction-system/internal/domain/entity"
 )
 
 // TransactionRepository defines the interface for transaction storage
