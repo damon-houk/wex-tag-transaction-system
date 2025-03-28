@@ -22,6 +22,14 @@ type MockTreasuryAPI struct {
 }
 
 func (m *MockTreasuryAPI) GetExchangeRate(ctx context.Context, currency string, date time.Time) (*entity.ExchangeRate, error) {
+	// Use context to check for cancellation
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+		// Continue with normal processing
+	}
+
 	// Return predefined rates for common currencies
 	rates := map[string]float64{
 		"EUR": 0.85,
