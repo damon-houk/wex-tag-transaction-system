@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 
@@ -53,7 +54,17 @@ func (h *ConversionHandler) ConvertTransaction(w http.ResponseWriter, r *http.Re
 			http.Error(w, err.Error(), http.StatusNotFound)
 		case strings.Contains(err.Error(), "no exchange rate available"):
 			http.Error(w, err.Error(), http.StatusBadRequest)
+		case strings.Contains(err.Error(), "failed to get exchange rate"):
+			// Log the error for internal debugging
+			log.Printf("Treasury API error: %v", err)
+			http.Error(w, "Unable to retrieve exchange rate data. Please try again later.", http.StatusServiceUnavailable)
+		case strings.Contains(err.Error(), "failed to execute request"):
+			// Network or API connectivity issues
+			log.Printf("API connectivity error: %v", err)
+			http.Error(w, "Service temporarily unavailable. Please try again later.", http.StatusServiceUnavailable)
 		default:
+			// Log unexpected errors for investigation
+			log.Printf("Unexpected error in conversion handler: %v", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 		}
 		return

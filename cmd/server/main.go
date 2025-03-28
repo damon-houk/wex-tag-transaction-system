@@ -30,13 +30,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to open database: %v", err)
 	}
-	defer badgerDB.Close()
+	defer badgerDB.Close() // Initialize logger
+	logger := log.New(os.Stdout, "APP: ", log.LstdFlags)
 
 	// Initialize repositories
 	txRepo := db.NewBadgerTransactionRepository(badgerDB)
 
 	// Initialize API clients
-	treasuryAPI := api.NewTreasuryAPIClient(nil) // Use default HTTP client
+	treasuryAPI := api.NewTreasuryAPIClient(logger) // Use default HTTP client
 
 	// Initialize services
 	txService := service.NewTransactionService(txRepo)

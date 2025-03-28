@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/damon-houk/wex-tag-transaction-system/internal/domain/entity"
+	"github.com/damon-houk/wex-tag-transaction-system/internal/infrastructure/cache"
 )
 
 const (
@@ -21,6 +22,7 @@ const (
 type TreasuryAPIClient struct {
 	baseURL    string
 	httpClient *http.Client
+	cache      *cache.ExchangeRateCache
 }
 
 // NewTreasuryAPIClient creates a new Treasury API client
@@ -34,6 +36,7 @@ func NewTreasuryAPIClient(httpClient *http.Client) *TreasuryAPIClient {
 	return &TreasuryAPIClient{
 		baseURL:    treasuryBaseURL,
 		httpClient: httpClient,
+		cache:      cache.NewExchangeRateCache(),
 	}
 }
 
@@ -60,11 +63,16 @@ type TreasuryResponse struct {
 
 // GetExchangeRate retrieves the exchange rate for a currency on or before a specific date
 func (c *TreasuryAPIClient) GetExchangeRate(ctx context.Context, currency string, date time.Time) (*entity.ExchangeRate, error) {
+	// Check cache first
+	if cachedRate := c.cache.Get(currency, date); cachedRate != nil {
+		return cachedRate, nil
+	}
+
 	// Calculate the date 6 months before the purchase date
 	sixMonthsAgo := date.AddDate(0, -6, 0)
 
-	// Build request URL with appropriate filters
-	reqURL := fmt.Sprintf("%s%s?filter=country_currency_desc:eq:%s,record_date:lte:%s,record_date:gte:%s&sort=-record_date&limit=1",
+	// Build request URL with appropriate filters based on the official API documentation
+	reqURL := fmt.Sprintf("%s%s?filter=currency:eq:%s,record_date:lte:%s,record_date:gte:%s&sort=-record_date&limit=1",
 		c.baseURL,
 		exchangeRatePath,
 		url.QueryEscape(currency),
@@ -82,11 +90,36 @@ func (c *TreasuryAPIClient) GetExchangeRate(ctx context.Context, currency string
 	// Add Accept header to ensure JSON response
 	req.Header.Add("Accept", "application/json")
 
-	// Execute request
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute request: %w", err)
+	// Execute request with retry logic
+	var resp *http.Response
+	maxRetries := 3
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		resp, err = c.httpClient.Do(req)
+		if err == nil {
+			break
+		}
+
+		if attempt < maxRetries {
+			// Wait with exponential backoff before retrying
+			backoffTime := time.Duration(attempt*attempt) * time.Second
+			fmt.Printf("Request failed (attempt %d/%d): %v. Retrying in %v...\n",
+				attempt, maxRetries, err, backoffTime)
+			time.Sleep(backoffTime)
+
+			// Create a new request for the retry
+			req, err = http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create request for retry: %w", err)
+			}
+			req.Header.Add("Accept", "application/json")
+		}
 	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute request after %d attempts: %w", maxRetries, err)
+	}
+
 	defer func() {
 		closeErr := resp.Body.Close()
 		if closeErr != nil {
@@ -129,10 +162,15 @@ func (c *TreasuryAPIClient) GetExchangeRate(ctx context.Context, currency string
 	// Debug the rate data
 	fmt.Printf("Rate data: %+v\n", rateData)
 
-	// Parse rate
+	// Parse rate with better error handling
 	var rate float64
 	if _, err := fmt.Sscanf(rateData.ExchangeRate, "%f", &rate); err != nil {
 		return nil, fmt.Errorf("failed to parse exchange rate '%s': %w", rateData.ExchangeRate, err)
+	}
+
+	// Validate the rate is positive
+	if rate <= 0 {
+		return nil, fmt.Errorf("invalid exchange rate value: %f", rate)
 	}
 
 	// Parse date
@@ -141,10 +179,15 @@ func (c *TreasuryAPIClient) GetExchangeRate(ctx context.Context, currency string
 		return nil, fmt.Errorf("failed to parse rate date '%s': %w", rateData.RecordDate, err)
 	}
 
-	// Return exchange rate entity
-	return &entity.ExchangeRate{
+	// Create exchange rate entity
+	exchangeRate := &entity.ExchangeRate{
 		Currency: currency,
 		Date:     rateDate,
 		Rate:     rate,
-	}, nil
+	}
+
+	// Store in cache
+	c.cache.Put(exchangeRate, date)
+
+	return exchangeRate, nil
 }
