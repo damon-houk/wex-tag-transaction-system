@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"time"
@@ -23,20 +24,26 @@ type TreasuryAPIClient struct {
 	baseURL    string
 	httpClient *http.Client
 	cache      *cache.ExchangeRateCache
+	logger     *log.Logger
 }
 
 // NewTreasuryAPIClient creates a new Treasury API client
-func NewTreasuryAPIClient(httpClient *http.Client) *TreasuryAPIClient {
-	if httpClient == nil {
-		httpClient = &http.Client{
-			Timeout: 10 * time.Second,
-		}
+func NewTreasuryAPIClient(logger *log.Logger) *TreasuryAPIClient {
+	// Create default HTTP client
+	httpClient := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	// Use default logger if none provided
+	if logger == nil {
+		logger = log.New(io.Discard, "", 0) // No-op logger
 	}
 
 	return &TreasuryAPIClient{
 		baseURL:    treasuryBaseURL,
 		httpClient: httpClient,
 		cache:      cache.NewExchangeRateCache(),
+		logger:     logger,
 	}
 }
 
@@ -65,6 +72,7 @@ type TreasuryResponse struct {
 func (c *TreasuryAPIClient) GetExchangeRate(ctx context.Context, currency string, date time.Time) (*entity.ExchangeRate, error) {
 	// Check cache first
 	if cachedRate := c.cache.Get(currency, date); cachedRate != nil {
+		c.logger.Printf("Cache hit for currency %s on date %s", currency, date.Format("2006-01-02"))
 		return cachedRate, nil
 	}
 
@@ -79,7 +87,7 @@ func (c *TreasuryAPIClient) GetExchangeRate(ctx context.Context, currency string
 		date.Format("2006-01-02"),
 		sixMonthsAgo.Format("2006-01-02"))
 
-	fmt.Printf("Treasury API request URL: %s\n", reqURL)
+	c.logger.Printf("Treasury API request URL: %s", reqURL)
 
 	// Create HTTP request
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
@@ -103,7 +111,7 @@ func (c *TreasuryAPIClient) GetExchangeRate(ctx context.Context, currency string
 		if attempt < maxRetries {
 			// Wait with exponential backoff before retrying
 			backoffTime := time.Duration(attempt*attempt) * time.Second
-			fmt.Printf("Request failed (attempt %d/%d): %v. Retrying in %v...\n",
+			c.logger.Printf("Request failed (attempt %d/%d): %v. Retrying in %v...",
 				attempt, maxRetries, err, backoffTime)
 			time.Sleep(backoffTime)
 
@@ -124,7 +132,7 @@ func (c *TreasuryAPIClient) GetExchangeRate(ctx context.Context, currency string
 		closeErr := resp.Body.Close()
 		if closeErr != nil {
 			// Log the error but don't override the original return error if there was one
-			fmt.Printf("Error closing response body: %v\n", closeErr)
+			c.logger.Printf("Error closing response body: %v", closeErr)
 		}
 	}()
 
@@ -134,13 +142,18 @@ func (c *TreasuryAPIClient) GetExchangeRate(ctx context.Context, currency string
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	bodyString := string(bodyBytes)
-	fmt.Printf("Treasury API response status: %d\n", resp.StatusCode)
-	fmt.Printf("Treasury API response body: %s\n", bodyString)
+	c.logger.Printf("Treasury API response status: %d", resp.StatusCode)
+
+	// Only log the body in debug scenarios (it can be very large)
+	if len(bodyBytes) < 1000 {
+		c.logger.Printf("Treasury API response body: %s", string(bodyBytes))
+	} else {
+		c.logger.Printf("Treasury API response body: [%d bytes]", len(bodyBytes))
+	}
 
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API returned error status: %d, body: %s", resp.StatusCode, bodyString)
+		return nil, fmt.Errorf("API returned error status: %d", resp.StatusCode)
 	}
 
 	// Parse response
@@ -159,8 +172,8 @@ func (c *TreasuryAPIClient) GetExchangeRate(ctx context.Context, currency string
 	// Parse the exchange rate and date
 	rateData := treasuryResp.Data[0]
 
-	// Debug the rate data
-	fmt.Printf("Rate data: %+v\n", rateData)
+	c.logger.Printf("Rate data: currency=%s, date=%s, rate=%s",
+		rateData.CurrencyDesc, rateData.RecordDate, rateData.ExchangeRate)
 
 	// Parse rate with better error handling
 	var rate float64
@@ -188,6 +201,8 @@ func (c *TreasuryAPIClient) GetExchangeRate(ctx context.Context, currency string
 
 	// Store in cache
 	c.cache.Put(exchangeRate, date)
+	c.logger.Printf("Cached exchange rate for %s on %s: %f",
+		currency, date.Format("2006-01-02"), rate)
 
 	return exchangeRate, nil
 }
