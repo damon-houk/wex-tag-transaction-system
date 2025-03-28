@@ -192,6 +192,14 @@ func (c *TreasuryAPIClient) GetExchangeRate(ctx context.Context, currency string
 		return nil, fmt.Errorf("failed to parse rate date '%s': %w", rateData.RecordDate, err)
 	}
 
+	// Double-check that the rate date is within the required 6-month window
+	if rateDate.Before(sixMonthsAgo) || rateDate.After(date) {
+		return nil, fmt.Errorf("exchange rate date %s is outside the allowed range (must be between %s and %s inclusive)",
+			rateDate.Format("2006-01-02"),
+			sixMonthsAgo.Format("2006-01-02"),
+			date.Format("2006-01-02"))
+	}
+
 	// Create exchange rate entity
 	exchangeRate := &entity.ExchangeRate{
 		Currency: currency,

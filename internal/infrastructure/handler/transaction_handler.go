@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -25,20 +26,37 @@ func (h *TransactionHandler) CreateTransaction(w http.ResponseWriter, r *http.Re
 	// Parse request body
 	var req CreateTransactionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		sendErrorResponse(w, "Invalid request body",
+			"The request body could not be parsed as valid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Validate description length
+	if len(req.Description) > 50 {
+		sendErrorResponse(w, "Description too long",
+			"Description must not exceed 50 characters", http.StatusBadRequest)
+		return
+	}
+
+	// Validate amount is positive
+	if req.Amount <= 0 {
+		sendErrorResponse(w, "Invalid amount",
+			"Amount must be a positive value", http.StatusBadRequest)
 		return
 	}
 
 	// Parse date
 	date, err := time.Parse("2006-01-02", req.Date)
 	if err != nil {
-		http.Error(w, "Invalid date format. Use YYYY-MM-DD", http.StatusBadRequest)
+		sendErrorResponse(w, "Invalid date format",
+			"Date must be in YYYY-MM-DD format", http.StatusBadRequest)
 		return
 	}
 
 	// Don't allow future dates
 	if date.After(time.Now()) {
-		http.Error(w, "Transaction date cannot be in the future", http.StatusBadRequest)
+		sendErrorResponse(w, "Future date not allowed",
+			"Transaction date cannot be in the future", http.StatusBadRequest)
 		return
 	}
 
@@ -48,11 +66,16 @@ func (h *TransactionHandler) CreateTransaction(w http.ResponseWriter, r *http.Re
 		// Handle different types of errors
 		switch {
 		case strings.Contains(err.Error(), "description must not exceed"):
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			sendErrorResponse(w, "Description too long",
+				"Description must not exceed 50 characters", http.StatusBadRequest)
 		case strings.Contains(err.Error(), "amount must be"):
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			sendErrorResponse(w, "Invalid amount",
+				"Amount must be a positive value", http.StatusBadRequest)
 		default:
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			log.Printf("Unexpected error in create transaction: %v", err)
+			sendErrorResponse(w, "Internal server error",
+				"An unexpected error occurred while creating the transaction",
+				http.StatusInternalServerError)
 		}
 		return
 	}
@@ -73,9 +96,13 @@ func (h *TransactionHandler) GetTransaction(w http.ResponseWriter, r *http.Reque
 	tx, err := h.service.GetTransaction(r.Context(), id)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			sendErrorResponse(w, "Transaction not found",
+				"The requested transaction could not be found", http.StatusNotFound)
 		} else {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			log.Printf("Unexpected error in get transaction: %v", err)
+			sendErrorResponse(w, "Internal server error",
+				"An unexpected error occurred while retrieving the transaction",
+				http.StatusInternalServerError)
 		}
 		return
 	}

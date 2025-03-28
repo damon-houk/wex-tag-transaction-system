@@ -32,17 +32,16 @@ func main() {
 	}
 
 	defer func() {
-		err := badgerDB.Close()
-		if err != nil {
+		if err := badgerDB.Close(); err != nil {
 			log.Printf("Error closing BadgerDB: %v", err)
 		}
 	}()
 
+	// Create loggers
+	treasuryLogger := log.New(os.Stdout, "[TREASURY API] ", log.LstdFlags)
+
 	// Initialize repositories
 	txRepo := db.NewBadgerTransactionRepository(badgerDB)
-
-	// Create a logger for the Treasury API
-	treasuryLogger := log.New(os.Stdout, "[TREASURY API] ", log.LstdFlags)
 
 	// Initialize API clients
 	treasuryAPI := api.NewTreasuryAPIClient(treasuryLogger)

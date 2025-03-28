@@ -22,6 +22,13 @@ type ConvertedTransactionResponse struct {
 	RateDate        string  `json:"rate_date"`
 }
 
+// ErrorResponse represents a standardized error response
+type ErrorResponse struct {
+	Error       string `json:"error"`
+	Status      int    `json:"status"`
+	Description string `json:"description,omitempty"`
+}
+
 // ConversionHandler handles HTTP requests for currency conversion
 type ConversionHandler struct {
 	service *service.ConversionService
@@ -41,7 +48,15 @@ func (h *ConversionHandler) ConvertTransaction(w http.ResponseWriter, r *http.Re
 	// Get currency from query parameter
 	currency := r.URL.Query().Get("currency")
 	if currency == "" {
-		http.Error(w, "Currency parameter is required", http.StatusBadRequest)
+		sendErrorResponse(w, "Missing currency parameter",
+			"The 'currency' query parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	// Currency codes should be 3 characters
+	if len(currency) != 3 {
+		sendErrorResponse(w, "Invalid currency code",
+			"Currency code should be 3 characters (e.g., EUR, GBP, CAD)", http.StatusBadRequest)
 		return
 	}
 
@@ -51,21 +66,34 @@ func (h *ConversionHandler) ConvertTransaction(w http.ResponseWriter, r *http.Re
 		// Handle different types of errors
 		switch {
 		case strings.Contains(err.Error(), "not found"):
-			http.Error(w, err.Error(), http.StatusNotFound)
+			sendErrorResponse(w, "Transaction not found",
+				"The requested transaction could not be found", http.StatusNotFound)
 		case strings.Contains(err.Error(), "no exchange rate available"):
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			sendErrorResponse(w, "No exchange rate available",
+				"No exchange rate is available within 6 months of the transaction date for the specified currency",
+				http.StatusBadRequest)
+		case strings.Contains(err.Error(), "exchange rate date") && strings.Contains(err.Error(), "outside the allowed range"):
+			sendErrorResponse(w, "Exchange rate outside allowed range",
+				"The available exchange rate is outside the 6-month window prior to the transaction date",
+				http.StatusBadRequest)
 		case strings.Contains(err.Error(), "failed to get exchange rate"):
 			// Log the error for internal debugging
 			log.Printf("Treasury API error: %v", err)
-			http.Error(w, "Unable to retrieve exchange rate data. Please try again later.", http.StatusServiceUnavailable)
+			sendErrorResponse(w, "Exchange rate service unavailable",
+				"Unable to retrieve exchange rate data. Please try again later.",
+				http.StatusServiceUnavailable)
 		case strings.Contains(err.Error(), "failed to execute request"):
 			// Network or API connectivity issues
 			log.Printf("API connectivity error: %v", err)
-			http.Error(w, "Service temporarily unavailable. Please try again later.", http.StatusServiceUnavailable)
+			sendErrorResponse(w, "Service temporarily unavailable",
+				"The exchange rate service is temporarily unavailable. Please try again later.",
+				http.StatusServiceUnavailable)
 		default:
 			// Log unexpected errors for investigation
 			log.Printf("Unexpected error in conversion handler: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			sendErrorResponse(w, "Internal server error",
+				"An unexpected error occurred. Please try again later.",
+				http.StatusInternalServerError)
 		}
 		return
 	}
@@ -90,4 +118,18 @@ func (h *ConversionHandler) ConvertTransaction(w http.ResponseWriter, r *http.Re
 // RegisterRoutes registers the conversion handler routes
 func (h *ConversionHandler) RegisterRoutes(router *mux.Router) {
 	router.HandleFunc("/transactions/{id}/convert", h.ConvertTransaction).Methods("GET")
+}
+
+// sendErrorResponse sends a standardized error response
+func sendErrorResponse(w http.ResponseWriter, message, description string, statusCode int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+
+	resp := ErrorResponse{
+		Error:       message,
+		Status:      statusCode,
+		Description: description,
+	}
+
+	json.NewEncoder(w).Encode(resp)
 }
