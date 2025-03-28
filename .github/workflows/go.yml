@@ -1,24 +1,47 @@
-name: Go
+name: Go CI/CD
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feature/*, fix/*, release/* ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, release/* ]
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-    - name: Set up Go
-      uses: actions/setup-go@v3
-      with:
-        go-version: 1.18
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.18
 
-    - name: Build
-      run: go build -v ./...
+      - name: Build
+        run: go build -v ./...
 
-    - name: Test
-      run: go test -v ./...
+      - name: Unit Tests
+        run: go test -v ./... -short
+
+      - name: Integration Tests
+        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/')
+        run: go test -v ./internal/infrastructure/handler -run "TestTransaction|TestCurrency|TestError"
+
+      - name: Test Coverage
+        run: |
+          go test -coverprofile=coverage.out ./...
+          go tool cover -func=coverage.out
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.18
+      - name: Build for deployment
+        run: go build -v -o bin/server ./cmd/server
+    # Deployment steps will be added later when ready for production
