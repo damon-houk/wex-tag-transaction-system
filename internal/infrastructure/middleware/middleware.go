@@ -11,10 +11,10 @@ import (
 )
 
 // Keys for context values
-type contextKey int
+type contextKey string
 
 const (
-	requestIDKey contextKey = iota
+	requestIDKey contextKey = "request_id"
 )
 
 // RequestIDMiddleware adds a unique request ID to each request
@@ -31,10 +31,9 @@ func RequestIDMiddleware(next http.Handler) http.Handler {
 
 		// Add ID to context
 		ctx := context.WithValue(r.Context(), requestIDKey, requestID)
-		r = r.WithContext(ctx)
 
-		// Call next handler
-		next.ServeHTTP(w, r)
+		// Call next handler with updated context
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -47,9 +46,9 @@ func LoggingMiddleware(log logger.Logger) func(http.Handler) http.Handler {
 			// Create a response wrapper to capture status code
 			wrapper := newResponseWrapper(w)
 
-			// Log request
-			requestID := r.Context().Value(requestIDKey)
-			if requestID == nil {
+			// Get request ID from context
+			requestID, ok := r.Context().Value(requestIDKey).(string)
+			if !ok || requestID == "" {
 				requestID = "unknown"
 			}
 
@@ -84,11 +83,11 @@ func LoggingMiddleware(log logger.Logger) func(http.Handler) http.Handler {
 
 // GetRequestID retrieves the request ID from context
 func GetRequestID(ctx context.Context) string {
-	requestID := ctx.Value(requestIDKey)
-	if requestID == nil {
+	requestID, ok := ctx.Value(requestIDKey).(string)
+	if !ok || requestID == "" {
 		return "unknown"
 	}
-	return requestID.(string)
+	return requestID
 }
 
 // responseWrapper wraps http.ResponseWriter to capture the status code
