@@ -363,8 +363,8 @@ func TestErrorHandling(t *testing.T) {
 		_, err := txRepo.Store(context.Background(), testTx)
 		assert.NoError(t, err, "Failed to store test transaction")
 
-		// Mock the repository to return error for XYZ currency
-		mockExchangeRateRepo.On("FindRate", mock.Anything, "XYZ", testDate).
+		// Use mock.Anything for the context and time parameters to avoid timezone issues
+		mockExchangeRateRepo.On("FindRate", mock.Anything, "XYZ", mock.Anything).
 			Return(nil, fmt.Errorf("no exchange rate available within 6 months of %s for currency XYZ",
 				testDate.Format("2006-01-02"))).Once()
 
