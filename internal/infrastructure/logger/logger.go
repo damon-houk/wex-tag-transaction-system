@@ -219,7 +219,7 @@ func SetDefaultLogger(logger Logger) {
 	}
 }
 
-// Global logger functions
+// Debug Global logger functions
 func Debug(msg string, fields map[string]interface{}) {
 	defaultLogger.Debug(msg, fields)
 }

@@ -8,13 +8,15 @@ import (
 	"time"
 
 	"github.com/damon-houk/wex-tag-transaction-system/internal/domain/entity"
+	"github.com/damon-houk/wex-tag-transaction-system/internal/infrastructure/logger"
 	"github.com/damon-houk/wex-tag-transaction-system/internal/mocks"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestTreasuryExchangeRateRepository(t *testing.T) {
 	mockProvider := new(mocks.MockExchangeRateProvider)
-	repo := NewTreasuryExchangeRateRepository(mockProvider)
+	log := logger.NewJSONLogger(nil, logger.InfoLevel)
+	repo := NewTreasuryExchangeRateRepository(mockProvider, log)
 
 	ctx := context.Background()
 	testDate := time.Date(2023, 4, 15, 0, 0, 0, 0, time.UTC)

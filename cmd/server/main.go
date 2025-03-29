@@ -2,8 +2,6 @@
 package main
 
 import (
-	"log"
-	"net/http"
 	"os"
 	"path/filepath"
 
@@ -11,63 +9,102 @@ import (
 	"github.com/damon-houk/wex-tag-transaction-system/internal/infrastructure/api"
 	"github.com/damon-houk/wex-tag-transaction-system/internal/infrastructure/db"
 	"github.com/damon-houk/wex-tag-transaction-system/internal/infrastructure/handler"
+	"github.com/damon-houk/wex-tag-transaction-system/internal/infrastructure/logger"
+	"github.com/damon-houk/wex-tag-transaction-system/internal/infrastructure/middleware"
 	"github.com/dgraph-io/badger/v3"
 	"github.com/gorilla/mux"
+	"net/http"
 )
 
 func main() {
-	log.Println("Starting WEX TAG Transaction Processing System")
+	// Setup structured logger
+	jsonLogger := logger.NewJSONLogger(os.Stdout, logger.InfoLevel)
+	jsonLogger.Info("Starting WEX TAG Transaction Processing System", map[string]interface{}{
+		"version":   "1.0.0",
+		"timestamp": "2025-03-29T12:00:00Z",
+	})
 
 	// Setup BadgerDB
 	dbPath := filepath.Join(".", "data")
 	if err := os.MkdirAll(dbPath, 0755); err != nil {
-		log.Fatalf("Failed to create database directory: %v", err)
+		jsonLogger.Fatal("Failed to create database directory", map[string]interface{}{
+			"error": err.Error(),
+			"path":  dbPath,
+		})
 	}
 
 	badgerOpts := badger.DefaultOptions(dbPath)
 	badgerOpts.Logger = nil // Disable Badger's default logger
 
+	jsonLogger.Info("Opening database", map[string]interface{}{
+		"path": dbPath,
+	})
+
 	badgerDB, err := badger.Open(badgerOpts)
 	if err != nil {
-		log.Fatalf("Failed to open database: %v", err)
+		jsonLogger.Fatal("Failed to open database", map[string]interface{}{
+			"error": err.Error(),
+			"path":  dbPath,
+		})
 	}
 
 	defer func() {
 		if err := badgerDB.Close(); err != nil {
-			log.Printf("Error closing BadgerDB: %v", err)
+			jsonLogger.Error("Error closing BadgerDB", map[string]interface{}{
+				"error": err.Error(),
+			})
 		}
 	}()
 
-	// Create loggers
-	treasuryLogger := log.New(os.Stdout, "[TREASURY API] ", log.LstdFlags)
-
 	// Initialize repositories and services
-	txRepo := db.NewBadgerTransactionRepository(badgerDB)
-	treasuryClient := api.NewTreasuryAPIClient(treasuryLogger)
-	exchangeRateRepo := db.NewTreasuryExchangeRateRepository(treasuryClient)
+	txRepo := db.NewBadgerTransactionRepository(badgerDB, jsonLogger)
+	treasuryClient := api.NewTreasuryAPIClient(jsonLogger)
+	exchangeRateRepo := db.NewTreasuryExchangeRateRepository(treasuryClient, jsonLogger)
 
 	// Initialize services
-	txService := service.NewTransactionService(txRepo)
-	conversionService := service.NewConversionService(txRepo, exchangeRateRepo)
+	txService := service.NewTransactionService(txRepo, jsonLogger)
+	conversionService := service.NewConversionService(txRepo, exchangeRateRepo, jsonLogger)
 
 	// Initialize handlers
-	txHandler := handler.NewTransactionHandler(txService)
-	conversionHandler := handler.NewConversionHandler(conversionService)
+	txHandler := handler.NewTransactionHandler(txService, jsonLogger)
+	conversionHandler := handler.NewConversionHandler(conversionService, jsonLogger)
 
 	// Setup router
 	router := mux.NewRouter()
+
+	// Add middleware
+	router.Use(middleware.RequestIDMiddleware)
+	router.Use(middleware.LoggingMiddleware(jsonLogger))
+
+	// Register routes
 	txHandler.RegisterRoutes(router)
 	conversionHandler.RegisterRoutes(router)
 
-	// Add middleware for logging
-	router.Use(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			log.Printf("Request: %s %s", r.Method, r.URL.Path)
-			next.ServeHTTP(w, r)
-		})
-	})
+	// Add health check endpoint
+	router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"ok"}`))
+	}).Methods("GET")
 
 	// Start server
-	log.Println("Server listening on :8080")
-	log.Fatal(http.ListenAndServe(":8080", router))
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	serverAddr := ":" + port
+	jsonLogger.Info("Server listening", map[string]interface{}{
+		"address": serverAddr,
+	})
+
+	server := &http.Server{
+		Addr:    serverAddr,
+		Handler: router,
+	}
+
+	if err := server.ListenAndServe(); err != nil {
+		jsonLogger.Fatal("Server failed", map[string]interface{}{
+			"error": err.Error(),
+		})
+	}
 }

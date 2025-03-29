@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/damon-houk/wex-tag-transaction-system/internal/domain/entity"
+	"github.com/damon-houk/wex-tag-transaction-system/internal/infrastructure/logger"
 	"github.com/damon-houk/wex-tag-transaction-system/internal/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -15,7 +16,8 @@ import (
 
 func TestCreateTransaction(t *testing.T) {
 	repo := new(mocks.MockTransactionRepository)
-	service := NewTransactionService(repo)
+	log := logger.NewJSONLogger(nil, logger.InfoLevel)
+	service := NewTransactionService(repo, log)
 	ctx := context.Background()
 
 	t.Run("Valid transaction", func(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/damon-houk/wex-tag-transaction-system/internal/infrastructure/logger"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -15,8 +16,11 @@ func TestTreasuryAPIIntegration(t *testing.T) {
 		t.Skip("Skipping Treasury API integration test in short mode")
 	}
 
+	// Create test logger
+	log := logger.NewJSONLogger(nil, logger.InfoLevel)
+
 	// Create client with actual API
-	client := NewTreasuryAPIClient(nil)
+	client := NewTreasuryAPIClient(log)
 
 	// Test with a known currency and recent date
 	ctx := context.Background()

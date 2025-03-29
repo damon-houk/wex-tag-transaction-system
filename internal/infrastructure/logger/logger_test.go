@@ -42,4 +42,71 @@ func TestJSONLogger(t *testing.T) {
 	// This should log
 	warnLogger.Warn("Warning message", nil)
 	assert.Contains(t, buf.String(), "Warning message")
+
+	// Test WithField
+	buf.Reset()
+	fieldLogger := logger.WithField("context", "test")
+	fieldLogger.Info("With field", nil)
+
+	output = buf.String()
+	err = json.Unmarshal([]byte(output), &logEntry)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "test", logEntry["context"])
+	assert.Equal(t, "With field", logEntry["message"])
+
+	// Test WithFields
+	buf.Reset()
+	fieldsLogger := logger.WithFields(map[string]interface{}{
+		"app":     "test-app",
+		"version": "1.0.0",
+	})
+	fieldsLogger.Info("With fields", nil)
+
+	output = buf.String()
+	err = json.Unmarshal([]byte(output), &logEntry)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "test-app", logEntry["app"])
+	assert.Equal(t, "1.0.0", logEntry["version"])
+	assert.Equal(t, "With fields", logEntry["message"])
+
+	// Test log levels
+	buf.Reset()
+	infoLogger := NewJSONLogger(&buf, InfoLevel)
+
+	infoLogger.Debug("Debug", nil) // Shouldn't log
+	assert.Equal(t, "", buf.String())
+
+	infoLogger.Info("Info", nil) // Should log
+	assert.Contains(t, buf.String(), "Info")
+
+	buf.Reset()
+	infoLogger.Warn("Warn", nil) // Should log
+	assert.Contains(t, buf.String(), "Warn")
+
+	buf.Reset()
+	infoLogger.Error("Error", nil) // Should log
+	assert.Contains(t, buf.String(), "Error")
+}
+
+func TestGetDefaultLogger(t *testing.T) {
+	logger := GetDefaultLogger()
+	assert.NotNil(t, logger)
+}
+
+func TestSetDefaultLogger(t *testing.T) {
+	originalLogger := GetDefaultLogger()
+
+	var buf bytes.Buffer
+	newLogger := NewJSONLogger(&buf, DebugLevel)
+
+	SetDefaultLogger(newLogger)
+	currentLogger := GetDefaultLogger()
+
+	// Can't directly compare loggers, so we'll just make sure it's not nil
+	assert.NotNil(t, currentLogger)
+
+	// Reset to original
+	SetDefaultLogger(originalLogger)
 }

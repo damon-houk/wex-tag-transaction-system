@@ -1,4 +1,4 @@
-// internal/infrastructure/middleware/middleware.go
+// Package middleware internal/infrastructure/middleware/middleware.go
 package middleware
 
 import (

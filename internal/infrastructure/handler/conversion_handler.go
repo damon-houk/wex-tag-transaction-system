@@ -1,13 +1,14 @@
-// Package handler Package handler internal/infrastructure/handler/conversion_handler.go
+// Package handler internal/infrastructure/handler/conversion_handler.go
 package handler
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 	"strings"
 
 	"github.com/damon-houk/wex-tag-transaction-system/internal/application/service"
+	"github.com/damon-houk/wex-tag-transaction-system/internal/infrastructure/logger"
+	"github.com/damon-houk/wex-tag-transaction-system/internal/infrastructure/middleware"
 	"github.com/gorilla/mux"
 )
 
@@ -28,36 +29,68 @@ type ErrorResponse struct {
 	Error       string `json:"error"`
 	Status      int    `json:"status"`
 	Description string `json:"description,omitempty"`
+	RequestID   string `json:"request_id,omitempty"`
 }
 
 // ConversionHandler handles HTTP requests for currency conversion
 type ConversionHandler struct {
 	service *service.ConversionService
+	logger  logger.Logger
 }
 
 // NewConversionHandler creates a new conversion handler
-func NewConversionHandler(service *service.ConversionService) *ConversionHandler {
-	return &ConversionHandler{service: service}
+func NewConversionHandler(service *service.ConversionService, log logger.Logger) *ConversionHandler {
+	if log == nil {
+		log = logger.GetDefaultLogger()
+	}
+
+	return &ConversionHandler{
+		service: service,
+		logger:  log,
+	}
 }
 
 // ConvertTransaction handles retrieving a transaction with currency conversion
 func (h *ConversionHandler) ConvertTransaction(w http.ResponseWriter, r *http.Request) {
+	requestID := middleware.GetRequestID(r.Context())
+
 	// Get ID from URL
 	vars := mux.Vars(r)
 	id := vars["id"]
 
+	h.logger.Info("Handling convert transaction request", map[string]interface{}{
+		"request_id": requestID,
+		"id":         id,
+	})
+
 	// Get currency from query parameter
 	currency := r.URL.Query().Get("currency")
 	if currency == "" {
-		sendErrorResponse(w, "Missing currency parameter",
-			"The 'currency' query parameter is required", http.StatusBadRequest)
+		h.logger.Warn("Missing currency parameter", map[string]interface{}{
+			"request_id": requestID,
+			"id":         id,
+		})
+		sendErrorResponse(w, h.logger, "Missing currency parameter",
+			"The 'currency' query parameter is required", http.StatusBadRequest, requestID)
 		return
 	}
 
+	h.logger.Debug("Currency parameter", map[string]interface{}{
+		"request_id": requestID,
+		"id":         id,
+		"currency":   currency,
+	})
+
 	// Currency codes should be 3 characters
 	if len(currency) != 3 {
-		sendErrorResponse(w, "Invalid currency code",
-			"Currency code should be 3 characters (e.g., EUR, GBP, CAD)", http.StatusBadRequest)
+		h.logger.Warn("Invalid currency code", map[string]interface{}{
+			"request_id": requestID,
+			"id":         id,
+			"currency":   currency,
+			"length":     len(currency),
+		})
+		sendErrorResponse(w, h.logger, "Invalid currency code",
+			"Currency code should be 3 characters (e.g., EUR, GBP, CAD)", http.StatusBadRequest, requestID)
 		return
 	}
 
@@ -67,37 +100,78 @@ func (h *ConversionHandler) ConvertTransaction(w http.ResponseWriter, r *http.Re
 		// Handle different types of errors
 		switch {
 		case strings.Contains(err.Error(), "not found"):
-			sendErrorResponse(w, "Transaction not found",
-				"The requested transaction could not be found", http.StatusNotFound)
+			h.logger.Warn("Transaction not found", map[string]interface{}{
+				"request_id": requestID,
+				"id":         id,
+				"error":      err.Error(),
+			})
+			sendErrorResponse(w, h.logger, "Transaction not found",
+				"The requested transaction could not be found", http.StatusNotFound, requestID)
 		case strings.Contains(err.Error(), "no exchange rate available"):
-			sendErrorResponse(w, "No exchange rate available",
+			h.logger.Warn("No exchange rate available", map[string]interface{}{
+				"request_id": requestID,
+				"id":         id,
+				"currency":   currency,
+				"error":      err.Error(),
+			})
+			sendErrorResponse(w, h.logger, "No exchange rate available",
 				"No exchange rate is available within 6 months of the transaction date for the specified currency",
-				http.StatusBadRequest)
+				http.StatusBadRequest, requestID)
 		case strings.Contains(err.Error(), "exchange rate date") && strings.Contains(err.Error(), "outside the allowed range"):
-			sendErrorResponse(w, "Exchange rate outside allowed range",
+			h.logger.Warn("Exchange rate outside allowed range", map[string]interface{}{
+				"request_id": requestID,
+				"id":         id,
+				"currency":   currency,
+				"error":      err.Error(),
+			})
+			sendErrorResponse(w, h.logger, "Exchange rate outside allowed range",
 				"The available exchange rate is outside the 6-month window prior to the transaction date",
-				http.StatusBadRequest)
+				http.StatusBadRequest, requestID)
 		case strings.Contains(err.Error(), "failed to get exchange rate"):
 			// Log the error for internal debugging
-			log.Printf("Exchange rate error: %v", err)
-			sendErrorResponse(w, "Exchange rate service unavailable",
+			h.logger.Error("Exchange rate service error", map[string]interface{}{
+				"request_id": requestID,
+				"id":         id,
+				"currency":   currency,
+				"error":      err.Error(),
+			})
+			sendErrorResponse(w, h.logger, "Exchange rate service unavailable",
 				"Unable to retrieve exchange rate data. Please try again later.",
-				http.StatusServiceUnavailable)
+				http.StatusServiceUnavailable, requestID)
 		case strings.Contains(err.Error(), "failed to execute request"):
 			// Network or API connectivity issues
-			log.Printf("API connectivity error: %v", err)
-			sendErrorResponse(w, "Service temporarily unavailable",
+			h.logger.Error("API connectivity error", map[string]interface{}{
+				"request_id": requestID,
+				"id":         id,
+				"currency":   currency,
+				"error":      err.Error(),
+			})
+			sendErrorResponse(w, h.logger, "Service temporarily unavailable",
 				"The exchange rate service is temporarily unavailable. Please try again later.",
-				http.StatusServiceUnavailable)
+				http.StatusServiceUnavailable, requestID)
 		default:
 			// Log unexpected errors for investigation
-			log.Printf("Unexpected error in conversion handler: %v", err)
-			sendErrorResponse(w, "Internal server error",
+			h.logger.Error("Unexpected error in conversion handler", map[string]interface{}{
+				"request_id": requestID,
+				"id":         id,
+				"currency":   currency,
+				"error":      err.Error(),
+			})
+			sendErrorResponse(w, h.logger, "Internal server error",
 				"An unexpected error occurred. Please try again later.",
-				http.StatusInternalServerError)
+				http.StatusInternalServerError, requestID)
 		}
 		return
 	}
+
+	h.logger.Info("Transaction converted successfully", map[string]interface{}{
+		"request_id":       requestID,
+		"id":               id,
+		"currency":         currency,
+		"original_amount":  convertedTx.OriginalAmount,
+		"exchange_rate":    convertedTx.ExchangeRate,
+		"converted_amount": convertedTx.ConvertedAmount,
+	})
 
 	// Create response
 	resp := ConvertedTransactionResponse{
@@ -119,18 +193,10 @@ func (h *ConversionHandler) ConvertTransaction(w http.ResponseWriter, r *http.Re
 // RegisterRoutes registers the conversion handler routes
 func (h *ConversionHandler) RegisterRoutes(router *mux.Router) {
 	router.HandleFunc("/transactions/{id}/convert", h.ConvertTransaction).Methods("GET")
-}
 
-// sendErrorResponse sends a standardized error response
-func sendErrorResponse(w http.ResponseWriter, message, description string, statusCode int) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-
-	resp := ErrorResponse{
-		Error:       message,
-		Status:      statusCode,
-		Description: description,
-	}
-
-	json.NewEncoder(w).Encode(resp)
+	h.logger.Info("Conversion routes registered", map[string]interface{}{
+		"routes": []string{
+			"GET /transactions/{id}/convert",
+		},
+	})
 }

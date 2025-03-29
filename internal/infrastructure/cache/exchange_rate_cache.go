@@ -8,14 +8,14 @@ import (
 )
 
 // CacheEntry represents a cached exchange rate with expiration
-type CacheEntry struct {
+type Entry struct {
 	Rate      *entity.ExchangeRate
 	Timestamp time.Time
 }
 
 // ExchangeRateCache provides a thread-safe in-memory cache for exchange rates
 type ExchangeRateCache struct {
-	cache      map[string]CacheEntry
+	cache      map[string]Entry
 	expiration time.Duration
 	mutex      sync.RWMutex
 }
@@ -23,7 +23,7 @@ type ExchangeRateCache struct {
 // NewExchangeRateCache creates a new exchange rate cache
 func NewExchangeRateCache() *ExchangeRateCache {
 	return &ExchangeRateCache{
-		cache:      make(map[string]CacheEntry),
+		cache:      make(map[string]Entry),
 		expiration: 24 * time.Hour, // Default 24h expiration
 	}
 }
@@ -55,7 +55,7 @@ func (c *ExchangeRateCache) Put(rate *entity.ExchangeRate, forDate time.Time) {
 	defer c.mutex.Unlock()
 
 	key := generateCacheKey(rate.Currency, forDate)
-	c.cache[key] = CacheEntry{
+	c.cache[key] = Entry{
 		Rate:      rate,
 		Timestamp: time.Now(),
 	}
@@ -66,7 +66,7 @@ func (c *ExchangeRateCache) Clear() {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
-	c.cache = make(map[string]CacheEntry)
+	c.cache = make(map[string]Entry)
 }
 
 // SetExpiration sets the cache expiration duration

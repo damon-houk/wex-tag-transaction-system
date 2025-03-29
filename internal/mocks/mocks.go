@@ -1,4 +1,4 @@
-// Package mocks internal/mocks/mocks.go
+// internal/mocks/mocks.go
 package mocks
 
 import (
@@ -56,4 +56,39 @@ func (m *MockExchangeRateProvider) FetchExchangeRate(ctx context.Context, curren
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*entity.ExchangeRate), args.Error(1)
+}
+
+// MockLogger mocks the logger interface
+type MockLogger struct {
+	mock.Mock
+}
+
+func (m *MockLogger) Debug(msg string, fields map[string]interface{}) {
+	m.Called(msg, fields)
+}
+
+func (m *MockLogger) Info(msg string, fields map[string]interface{}) {
+	m.Called(msg, fields)
+}
+
+func (m *MockLogger) Warn(msg string, fields map[string]interface{}) {
+	m.Called(msg, fields)
+}
+
+func (m *MockLogger) Error(msg string, fields map[string]interface{}) {
+	m.Called(msg, fields)
+}
+
+func (m *MockLogger) Fatal(msg string, fields map[string]interface{}) {
+	m.Called(msg, fields)
+}
+
+func (m *MockLogger) WithField(key string, value interface{}) interface{} {
+	args := m.Called(key, value)
+	return args.Get(0)
+}
+
+func (m *MockLogger) WithFields(fields map[string]interface{}) interface{} {
+	args := m.Called(fields)
+	return args.Get(0)
 }
