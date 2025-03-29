@@ -1,3 +1,4 @@
+// internal/infrastructure/api/treasury_api_integration_test.go
 package api
 
 import (
@@ -28,7 +29,7 @@ func TestTreasuryAPIIntegration(t *testing.T) {
 
 	for _, currency := range currencies {
 		t.Run(currency, func(t *testing.T) {
-			rate, err := client.GetExchangeRate(ctx, currency, date)
+			rate, err := client.FetchExchangeRate(ctx, currency, date)
 
 			// We don't know if we'll get a result for every currency, but the call should succeed
 			if err != nil {

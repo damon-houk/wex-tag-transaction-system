@@ -1,3 +1,4 @@
+// Package service internal/application/service/conversion_service.go
 package service
 
 import (
@@ -6,15 +7,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/damon-houk/wex-tag-transaction-system/internal/domain/entity"
 	"github.com/damon-houk/wex-tag-transaction-system/internal/domain/repository"
 )
-
-// TreasuryAPI defines the interface for interacting with the Treasury API
-type TreasuryAPI interface {
-	// GetExchangeRate retrieves an exchange rate for a currency and date
-	GetExchangeRate(ctx context.Context, currency string, date time.Time) (*entity.ExchangeRate, error)
-}
 
 // ConvertedTransaction represents a transaction with conversion information
 type ConvertedTransaction struct {
@@ -30,15 +24,15 @@ type ConvertedTransaction struct {
 
 // ConversionService handles currency conversion for transactions
 type ConversionService struct {
-	txRepo      repository.TransactionRepository
-	treasuryAPI TreasuryAPI
+	txRepo       repository.TransactionRepository
+	exchangeRepo repository.ExchangeRateRepository
 }
 
 // NewConversionService creates a new conversion service
-func NewConversionService(txRepo repository.TransactionRepository, treasuryAPI TreasuryAPI) *ConversionService {
+func NewConversionService(txRepo repository.TransactionRepository, exchangeRepo repository.ExchangeRateRepository) *ConversionService {
 	return &ConversionService{
-		txRepo:      txRepo,
-		treasuryAPI: treasuryAPI,
+		txRepo:       txRepo,
+		exchangeRepo: exchangeRepo,
 	}
 }
 
@@ -51,7 +45,7 @@ func (s *ConversionService) GetTransactionInCurrency(ctx context.Context, id, cu
 	}
 
 	// Find applicable exchange rate
-	rate, err := s.treasuryAPI.GetExchangeRate(ctx, currency, tx.Date)
+	rate, err := s.exchangeRepo.FindRate(ctx, currency, tx.Date)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get exchange rate: %w", err)
 	}

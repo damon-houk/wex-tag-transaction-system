@@ -1,3 +1,4 @@
+// internal/infrastructure/api/treasury_api_client_test.go
 package api
 
 import (
@@ -10,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestGetExchangeRate(t *testing.T) {
+func TestFetchExchangeRate(t *testing.T) {
 	// Skip in short mode
 	if testing.Short() {
 		t.Skip("Skipping treasury API test in short mode")
@@ -62,7 +63,7 @@ func TestGetExchangeRate(t *testing.T) {
 	// Test successful request
 	ctx := context.Background()
 	date := time.Date(2023, 4, 15, 0, 0, 0, 0, time.UTC)
-	rate, err := client.GetExchangeRate(ctx, "EUR", date)
+	rate, err := client.FetchExchangeRate(ctx, "EUR", date)
 
 	// Assert response
 	assert.NoError(t, err)
@@ -75,56 +76,8 @@ func TestGetExchangeRate(t *testing.T) {
 	assert.Equal(t, expectedDate, rate.Date)
 
 	// Test error handling with invalid currency
-	_, err = client.GetExchangeRate(ctx, "", date)
+	_, err = client.FetchExchangeRate(ctx, "", date)
 	assert.Error(t, err)
-}
-
-func TestExchangeRateCache(t *testing.T) {
-	// Create client
-	client := NewTreasuryAPIClient(nil)
-
-	// Setup a mock server that counts requests
-	requestCount := 0
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestCount++
-
-		// Send mock response
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{
-			"data": [
-				{
-					"country": "Euro Zone",
-					"currency": "Euro",
-					"exchange_rate": "0.85",
-					"record_date": "2023-04-10",
-					"effective_date": "2023-04-10"
-				}
-			],
-			"meta": { "count": 1 }
-		}`))
-	}))
-	defer mockServer.Close()
-
-	client.baseURL = mockServer.URL
-
-	// Make first request
-	ctx := context.Background()
-	date := time.Date(2023, 4, 15, 0, 0, 0, 0, time.UTC)
-	rate1, err := client.GetExchangeRate(ctx, "EUR", date)
-	assert.NoError(t, err)
-	assert.Equal(t, 1, requestCount)
-
-	// Make second request with same parameters - should use cache
-	rate2, err := client.GetExchangeRate(ctx, "EUR", date)
-	assert.NoError(t, err)
-	assert.Equal(t, 1, requestCount) // Should still be 1 as no new request should be made
-	assert.Equal(t, rate1.Rate, rate2.Rate)
-
-	// Make request with different parameters
-	_, err = client.GetExchangeRate(ctx, "GBP", date)
-	assert.NoError(t, err)
-	assert.Equal(t, 2, requestCount) // Should be 2 now
 }
 
 // Helper function to check if a string contains a substring

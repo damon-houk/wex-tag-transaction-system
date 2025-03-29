@@ -1,3 +1,4 @@
+// internal/application/service/transaction_service_test.go
 package service
 
 import (
@@ -7,30 +8,13 @@ import (
 	"time"
 
 	"github.com/damon-houk/wex-tag-transaction-system/internal/domain/entity"
+	"github.com/damon-houk/wex-tag-transaction-system/internal/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
 
-// MockTransactionRepository is a mock implementation of the transaction repository
-type MockTransactionRepository struct {
-	mock.Mock
-}
-
-func (m *MockTransactionRepository) Store(ctx context.Context, tx *entity.Transaction) (string, error) {
-	args := m.Called(ctx, tx)
-	return args.String(0), args.Error(1)
-}
-
-func (m *MockTransactionRepository) FindByID(ctx context.Context, id string) (*entity.Transaction, error) {
-	args := m.Called(ctx, id)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*entity.Transaction), args.Error(1)
-}
-
 func TestCreateTransaction(t *testing.T) {
-	repo := new(MockTransactionRepository)
+	repo := new(mocks.MockTransactionRepository)
 	service := NewTransactionService(repo)
 	ctx := context.Background()
 

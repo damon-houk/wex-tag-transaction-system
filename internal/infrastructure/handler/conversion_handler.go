@@ -1,3 +1,4 @@
+// Package handler Package handler internal/infrastructure/handler/conversion_handler.go
 package handler
 
 import (
@@ -78,7 +79,7 @@ func (h *ConversionHandler) ConvertTransaction(w http.ResponseWriter, r *http.Re
 				http.StatusBadRequest)
 		case strings.Contains(err.Error(), "failed to get exchange rate"):
 			// Log the error for internal debugging
-			log.Printf("Treasury API error: %v", err)
+			log.Printf("Exchange rate error: %v", err)
 			sendErrorResponse(w, "Exchange rate service unavailable",
 				"Unable to retrieve exchange rate data. Please try again later.",
 				http.StatusServiceUnavailable)

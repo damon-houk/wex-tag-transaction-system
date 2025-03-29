@@ -1,3 +1,4 @@
+// cmd/server/main.go
 package main
 
 import (
@@ -40,15 +41,14 @@ func main() {
 	// Create loggers
 	treasuryLogger := log.New(os.Stdout, "[TREASURY API] ", log.LstdFlags)
 
-	// Initialize repositories
+	// Initialize repositories and services
 	txRepo := db.NewBadgerTransactionRepository(badgerDB)
-
-	// Initialize API clients
-	treasuryAPI := api.NewTreasuryAPIClient(treasuryLogger)
+	treasuryClient := api.NewTreasuryAPIClient(treasuryLogger)
+	exchangeRateRepo := db.NewTreasuryExchangeRateRepository(treasuryClient)
 
 	// Initialize services
 	txService := service.NewTransactionService(txRepo)
-	conversionService := service.NewConversionService(txRepo, treasuryAPI)
+	conversionService := service.NewConversionService(txRepo, exchangeRateRepo)
 
 	// Initialize handlers
 	txHandler := handler.NewTransactionHandler(txService)
@@ -58,6 +58,14 @@ func main() {
 	router := mux.NewRouter()
 	txHandler.RegisterRoutes(router)
 	conversionHandler.RegisterRoutes(router)
+
+	// Add middleware for logging
+	router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			log.Printf("Request: %s %s", r.Method, r.URL.Path)
+			next.ServeHTTP(w, r)
+		})
+	})
 
 	// Start server
 	log.Println("Server listening on :8080")

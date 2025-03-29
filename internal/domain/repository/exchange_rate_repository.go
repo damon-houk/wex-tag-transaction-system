@@ -1,3 +1,4 @@
+// Package repository internal/domain/repository/exchange_rate_repository.go
 package repository
 
 import (

@@ -1,3 +1,4 @@
+// internal/infrastructure/handler/integration_test.go
 package handler_test
 
 import (
@@ -15,27 +16,15 @@ import (
 	"github.com/damon-houk/wex-tag-transaction-system/internal/domain/entity"
 	"github.com/damon-houk/wex-tag-transaction-system/internal/infrastructure/db"
 	"github.com/damon-houk/wex-tag-transaction-system/internal/infrastructure/handler"
+	"github.com/damon-houk/wex-tag-transaction-system/internal/mocks"
 	"github.com/dgraph-io/badger/v3"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
 
-// MockTreasuryAPI is mock of the TreasuryAPI interface for testing
-type MockTreasuryAPI struct {
-	mock.Mock
-}
-
-func (m *MockTreasuryAPI) GetExchangeRate(ctx context.Context, currency string, date time.Time) (*entity.ExchangeRate, error) {
-	args := m.Called(ctx, currency, date)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*entity.ExchangeRate), args.Error(1)
-}
-
 // setupTestServer creates a test server with mocked dependencies
-func setupTestServer(treasuryAPI service.TreasuryAPI) (*httptest.Server, *badger.DB, func(), error) {
+func setupTestServer(exchangeRateRepo *mocks.MockExchangeRateRepository) (*httptest.Server, *badger.DB, func(), error) {
 	// Create a temporary directory for the test database
 	tempDir, err := os.MkdirTemp("", "badger-test")
 	if err != nil {
@@ -56,7 +45,7 @@ func setupTestServer(treasuryAPI service.TreasuryAPI) (*httptest.Server, *badger
 	// Create repository and services
 	txRepo := db.NewBadgerTransactionRepository(badgerDB)
 	txService := service.NewTransactionService(txRepo)
-	conversionService := service.NewConversionService(txRepo, treasuryAPI)
+	conversionService := service.NewConversionService(txRepo, exchangeRateRepo)
 
 	// Create handlers
 	txHandler := handler.NewTransactionHandler(txService)
@@ -85,11 +74,11 @@ func TestTransactionCreationAndRetrieval(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	// Setup mock Treasury API
-	mockTreasuryAPI := new(MockTreasuryAPI)
+	// Setup mock exchange rate repository
+	mockExchangeRateRepo := new(mocks.MockExchangeRateRepository)
 
 	// Setup test server
-	server, _, cleanup, err := setupTestServer(mockTreasuryAPI)
+	server, _, cleanup, err := setupTestServer(mockExchangeRateRepo)
 	if err != nil {
 		t.Fatalf("Failed to setup test server: %v", err)
 	}
@@ -149,11 +138,11 @@ func TestCurrencyConversion(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	// Setup mock Treasury API
-	mockTreasuryAPI := new(MockTreasuryAPI)
+	// Setup mock exchange rate repository
+	mockExchangeRateRepo := new(mocks.MockExchangeRateRepository)
 
 	// Setup test server
-	server, badgerDB, cleanup, err := setupTestServer(mockTreasuryAPI)
+	server, badgerDB, cleanup, err := setupTestServer(mockExchangeRateRepo)
 	if err != nil {
 		t.Fatalf("Failed to setup test server: %v", err)
 	}
@@ -181,7 +170,7 @@ func TestCurrencyConversion(t *testing.T) {
 		Date:     testDate.AddDate(0, 0, -5), // 5 days before the transaction
 		Rate:     0.85,
 	}
-	mockTreasuryAPI.On("GetExchangeRate", mock.Anything, "EUR", testDate).Return(mockRate, nil)
+	mockExchangeRateRepo.On("FindRate", mock.Anything, "EUR", testDate).Return(mockRate, nil)
 
 	// Request currency conversion
 	resp, err := http.Get(server.URL + "/transactions/test-transaction-id/convert?currency=EUR")
@@ -208,7 +197,7 @@ func TestCurrencyConversion(t *testing.T) {
 	assert.Equal(t, 104.93, convResp.ConvertedAmount) // 123.45 * 0.85 = 104.9325, rounded to 104.93
 
 	// Verify mock was called
-	mockTreasuryAPI.AssertExpectations(t)
+	mockExchangeRateRepo.AssertExpectations(t)
 }
 
 func TestErrorHandling(t *testing.T) {
@@ -216,11 +205,11 @@ func TestErrorHandling(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	// Setup mock Treasury API
-	mockTreasuryAPI := new(MockTreasuryAPI)
+	// Setup mock exchange rate repository
+	mockExchangeRateRepo := new(mocks.MockExchangeRateRepository)
 
 	// Setup test server
-	server, _, cleanup, err := setupTestServer(mockTreasuryAPI)
+	server, badgerDB, cleanup, err := setupTestServer(mockExchangeRateRepo)
 	if err != nil {
 		t.Fatalf("Failed to setup test server: %v", err)
 	}
@@ -283,6 +272,27 @@ func TestErrorHandling(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	})
 
+	t.Run("Future date", func(t *testing.T) {
+		futureDate := time.Now().AddDate(1, 0, 0) // 1 year in the future
+
+		invalidJSON := fmt.Sprintf(`{
+			"description": "Test transaction",
+			"date": "%s",
+			"amount": 123.45
+		}`, futureDate.Format("2006-01-02"))
+
+		resp, err := http.Post(
+			server.URL+"/transactions",
+			"application/json",
+			bytes.NewBufferString(invalidJSON),
+		)
+		if err != nil {
+			t.Fatalf("Failed to send future date request: %v", err)
+		}
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	})
+
 	t.Run("Transaction not found", func(t *testing.T) {
 		resp, err := http.Get(server.URL + "/transactions/non-existent-id")
 		if err != nil {
@@ -293,33 +303,83 @@ func TestErrorHandling(t *testing.T) {
 	})
 
 	t.Run("Missing currency parameter", func(t *testing.T) {
-		resp, err := http.Get(server.URL + "/transactions/any-id/convert")
+		// First, create a test transaction in the database
+		testDate := time.Now().AddDate(0, 0, -30) // 30 days ago
+		testTx := &entity.Transaction{
+			ID:          "missing-currency-test-id",
+			Description: "Test transaction",
+			Date:        testDate,
+			Amount:      123.45,
+		}
+
+		txRepo := db.NewBadgerTransactionRepository(badgerDB)
+		_, err := txRepo.Store(context.Background(), testTx)
+		assert.NoError(t, err, "Failed to store test transaction")
+
+		// Test missing currency parameter
+		resp, err := http.Get(server.URL + "/transactions/missing-currency-test-id/convert")
 		if err != nil {
 			t.Fatalf("Failed to send missing currency request: %v", err)
+		}
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+		// Verify error response contains appropriate message
+		var errorResp handler.ErrorResponse
+		err = json.NewDecoder(resp.Body).Decode(&errorResp)
+		assert.NoError(t, err, "Failed to decode error response")
+		assert.Contains(t, errorResp.Error, "Missing currency parameter")
+	})
+
+	t.Run("Invalid currency code", func(t *testing.T) {
+		// Test with invalid currency code (too short)
+		resp, err := http.Get(server.URL + "/transactions/any-id/convert?currency=E")
+		if err != nil {
+			t.Fatalf("Failed to send invalid currency request: %v", err)
+		}
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+		// Test with invalid currency code (too long)
+		resp, err = http.Get(server.URL + "/transactions/any-id/convert?currency=EURO")
+		if err != nil {
+			t.Fatalf("Failed to send invalid currency request: %v", err)
 		}
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	})
 
 	t.Run("No exchange rate available", func(t *testing.T) {
-		// Parse test date
-		testDate, err := time.Parse("2006-01-02", "2023-04-15")
-		if err != nil {
-			t.Fatalf("Failed to parse test date: %v", err)
+		// Setup a transaction in the database
+		testDate := time.Now().AddDate(0, 0, -30) // 30 days ago
+		testTx := &entity.Transaction{
+			ID:          "no-rate-test-id",
+			Description: "Test transaction",
+			Date:        testDate,
+			Amount:      123.45,
 		}
 
-		// Setup mock to return error for exchange rate
-		mockTreasuryAPI.On("GetExchangeRate", mock.Anything, "XYZ", testDate).
-			Return(nil, fmt.Errorf("no exchange rate available within 6 months of 2023-04-15 for currency XYZ"))
+		txRepo := db.NewBadgerTransactionRepository(badgerDB)
+		_, err := txRepo.Store(context.Background(), testTx)
+		assert.NoError(t, err, "Failed to store test transaction")
 
-		resp, err := http.Get(server.URL + "/transactions/any-id/convert?currency=XYZ")
+		// Mock the repository to return error for XYZ currency
+		mockExchangeRateRepo.On("FindRate", mock.Anything, "XYZ", testDate).
+			Return(nil, fmt.Errorf("no exchange rate available within 6 months of %s for currency XYZ",
+				testDate.Format("2006-01-02"))).Once()
+
+		// Test conversion with a currency that has no rate
+		resp, err := http.Get(server.URL + "/transactions/no-rate-test-id/convert?currency=XYZ")
 		if err != nil {
 			t.Fatalf("Failed to send no exchange rate request: %v", err)
 		}
 		defer resp.Body.Close()
-		// Could be either 404 (transaction not found) or 400 (no exchange rate)
-		// depending on if the transaction exists - both are acceptable here
-		assert.True(t, resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusBadRequest,
-			"Expected status code 404 or 400, got %d", resp.StatusCode)
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+		// Verify error response contains appropriate message
+		var errorResp handler.ErrorResponse
+		err = json.NewDecoder(resp.Body).Decode(&errorResp)
+		assert.NoError(t, err, "Failed to decode error response")
+		assert.Contains(t, errorResp.Error, "No exchange rate available")
 	})
 }

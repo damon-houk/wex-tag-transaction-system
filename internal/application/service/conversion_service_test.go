@@ -1,3 +1,4 @@
+// internal/application/service/conversion_service_test.go
 package service
 
 import (
@@ -11,12 +12,30 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-// MockTreasuryAPI is a mock implementation of the TreasuryAPI interface
-type MockTreasuryAPI struct {
+// MockTransactionRepository is a mock implementation of the transaction repository
+type MockTransactionRepository struct {
 	mock.Mock
 }
 
-func (m *MockTreasuryAPI) GetExchangeRate(ctx context.Context, currency string, date time.Time) (*entity.ExchangeRate, error) {
+func (m *MockTransactionRepository) Store(ctx context.Context, tx *entity.Transaction) (string, error) {
+	args := m.Called(ctx, tx)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockTransactionRepository) FindByID(ctx context.Context, id string) (*entity.Transaction, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*entity.Transaction), args.Error(1)
+}
+
+// MockExchangeRateRepository is a mock implementation of the exchange rate repository
+type MockExchangeRateRepository struct {
+	mock.Mock
+}
+
+func (m *MockExchangeRateRepository) FindRate(ctx context.Context, currency string, date time.Time) (*entity.ExchangeRate, error) {
 	args := m.Called(ctx, currency, date)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -24,10 +43,15 @@ func (m *MockTreasuryAPI) GetExchangeRate(ctx context.Context, currency string, 
 	return args.Get(0).(*entity.ExchangeRate), args.Error(1)
 }
 
+func (m *MockExchangeRateRepository) StoreRate(ctx context.Context, rate *entity.ExchangeRate) error {
+	args := m.Called(ctx, rate)
+	return args.Error(0)
+}
+
 func TestGetTransactionInCurrency(t *testing.T) {
 	repo := new(MockTransactionRepository)
-	treasuryAPI := new(MockTreasuryAPI)
-	service := NewConversionService(repo, treasuryAPI)
+	exchangeRepo := new(MockExchangeRateRepository)
+	service := NewConversionService(repo, exchangeRepo)
 	ctx := context.Background()
 
 	t.Run("Successful conversion", func(t *testing.T) {
@@ -50,7 +74,7 @@ func TestGetTransactionInCurrency(t *testing.T) {
 
 		// Mock expectations
 		repo.On("FindByID", ctx, txID).Return(tx, nil).Once()
-		treasuryAPI.On("GetExchangeRate", ctx, currency, tx.Date).Return(rate, nil).Once()
+		exchangeRepo.On("FindRate", ctx, currency, tx.Date).Return(rate, nil).Once()
 
 		// Execute
 		result, err := service.GetTransactionInCurrency(ctx, txID, currency)
@@ -67,7 +91,7 @@ func TestGetTransactionInCurrency(t *testing.T) {
 		assert.Equal(t, rate.Date, result.RateDate)
 
 		repo.AssertExpectations(t)
-		treasuryAPI.AssertExpectations(t)
+		exchangeRepo.AssertExpectations(t)
 	})
 
 	t.Run("Transaction not found", func(t *testing.T) {
@@ -103,7 +127,7 @@ func TestGetTransactionInCurrency(t *testing.T) {
 
 		// Mock expectations
 		repo.On("FindByID", ctx, txID).Return(tx, nil).Once()
-		treasuryAPI.On("GetExchangeRate", ctx, currency, tx.Date).
+		exchangeRepo.On("FindRate", ctx, currency, tx.Date).
 			Return(nil, errors.New("no exchange rate available")).Once()
 
 		// Execute
@@ -115,7 +139,7 @@ func TestGetTransactionInCurrency(t *testing.T) {
 		assert.Contains(t, err.Error(), "failed to get exchange rate")
 
 		repo.AssertExpectations(t)
-		treasuryAPI.AssertExpectations(t)
+		exchangeRepo.AssertExpectations(t)
 	})
 
 	t.Run("Rounding of converted amount", func(t *testing.T) {
@@ -138,7 +162,7 @@ func TestGetTransactionInCurrency(t *testing.T) {
 
 		// Mock expectations
 		repo.On("FindByID", ctx, txID).Return(tx, nil).Once()
-		treasuryAPI.On("GetExchangeRate", ctx, currency, tx.Date).Return(rate, nil).Once()
+		exchangeRepo.On("FindRate", ctx, currency, tx.Date).Return(rate, nil).Once()
 
 		// Execute
 		result, err := service.GetTransactionInCurrency(ctx, txID, currency)
@@ -149,6 +173,6 @@ func TestGetTransactionInCurrency(t *testing.T) {
 		assert.Equal(t, 83.33, result.ConvertedAmount)
 
 		repo.AssertExpectations(t)
-		treasuryAPI.AssertExpectations(t)
+		exchangeRepo.AssertExpectations(t)
 	})
 }

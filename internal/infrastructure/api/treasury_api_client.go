@@ -1,3 +1,4 @@
+// Package api internal/infrastructure/api/treasury_api_client.go
 package api
 
 import (
@@ -12,6 +13,7 @@ import (
 
 	"github.com/damon-houk/wex-tag-transaction-system/internal/domain/entity"
 	"github.com/damon-houk/wex-tag-transaction-system/internal/infrastructure/cache"
+	"github.com/damon-houk/wex-tag-transaction-system/internal/infrastructure/db"
 )
 
 const (
@@ -19,13 +21,16 @@ const (
 	exchangeRatePath = "/v1/accounting/od/rates_of_exchange"
 )
 
-// TreasuryAPIClient implements the Treasury API interface
+// TreasuryAPIClient is a client for the Treasury API
 type TreasuryAPIClient struct {
 	baseURL    string
 	httpClient *http.Client
 	cache      *cache.ExchangeRateCache
 	logger     *log.Logger
 }
+
+// Ensure TreasuryAPIClient implements the ExchangeRateProvider interface
+var _ db.ExchangeRateProvider = (*TreasuryAPIClient)(nil)
 
 // NewTreasuryAPIClient creates a new Treasury API client
 func NewTreasuryAPIClient(logger *log.Logger) *TreasuryAPIClient {
@@ -68,8 +73,8 @@ type TreasuryResponse struct {
 	} `json:"meta"`
 }
 
-// GetExchangeRate retrieves the exchange rate for a currency on or before a specific date
-func (c *TreasuryAPIClient) GetExchangeRate(ctx context.Context, currency string, date time.Time) (*entity.ExchangeRate, error) {
+// FetchExchangeRate retrieves the exchange rate from the Treasury API
+func (c *TreasuryAPIClient) FetchExchangeRate(ctx context.Context, currency string, date time.Time) (*entity.ExchangeRate, error) {
 	// Check cache first
 	if cachedRate := c.cache.Get(currency, date); cachedRate != nil {
 		c.logger.Printf("Cache hit for currency %s on date %s", currency, date.Format("2006-01-02"))
