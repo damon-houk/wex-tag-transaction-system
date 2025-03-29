@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/damon-houk/wex-tag-transaction-system/internal/domain/entity"
+	"github.com/damon-houk/wex-tag-transaction-system/internal/infrastructure/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -51,7 +52,8 @@ func (m *MockExchangeRateRepository) StoreRate(ctx context.Context, rate *entity
 func TestGetTransactionInCurrency(t *testing.T) {
 	repo := new(MockTransactionRepository)
 	exchangeRepo := new(MockExchangeRateRepository)
-	service := NewConversionService(repo, exchangeRepo)
+	log := logger.NewJSONLogger(nil, logger.InfoLevel)
+	service := NewConversionService(repo, exchangeRepo, log)
 	ctx := context.Background()
 
 	t.Run("Successful conversion", func(t *testing.T) {

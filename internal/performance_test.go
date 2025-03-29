@@ -12,6 +12,7 @@ import (
 
 	"github.com/damon-houk/wex-tag-transaction-system/internal/application/service"
 	"github.com/damon-houk/wex-tag-transaction-system/internal/infrastructure/db"
+	"github.com/damon-houk/wex-tag-transaction-system/internal/infrastructure/logger"
 	"github.com/dgraph-io/badger/v3"
 )
 
@@ -35,9 +36,12 @@ func TestPerformance(t *testing.T) {
 	}
 	defer badgerDB.Close()
 
+	// Create logger for test
+	log := logger.NewJSONLogger(nil, logger.InfoLevel)
+
 	// Initialize repositories and services
-	txRepo := db.NewBadgerTransactionRepository(badgerDB)
-	txService := service.NewTransactionService(txRepo)
+	txRepo := db.NewBadgerTransactionRepository(badgerDB, log)
+	txService := service.NewTransactionService(txRepo, log)
 
 	// Performance test configuration
 	numTransactions := 100

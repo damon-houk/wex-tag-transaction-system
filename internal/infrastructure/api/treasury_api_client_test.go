@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/damon-houk/wex-tag-transaction-system/internal/infrastructure/logger"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -16,6 +17,9 @@ func TestFetchExchangeRate(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping treasury API test in short mode")
 	}
+
+	// Create a test logger
+	log := logger.NewJSONLogger(nil, logger.InfoLevel)
 
 	// Setup a mock server
 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -56,8 +60,8 @@ func TestFetchExchangeRate(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
-	// Create client with mock server URL
-	client := NewTreasuryAPIClient(nil)
+	// Create client with mock server URL and test logger
+	client := NewTreasuryAPIClient(log)
 	client.baseURL = mockServer.URL // Replace the real URL with our mock
 
 	// Test successful request

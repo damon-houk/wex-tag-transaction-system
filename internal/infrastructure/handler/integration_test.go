@@ -16,6 +16,8 @@ import (
 	"github.com/damon-houk/wex-tag-transaction-system/internal/domain/entity"
 	"github.com/damon-houk/wex-tag-transaction-system/internal/infrastructure/db"
 	"github.com/damon-houk/wex-tag-transaction-system/internal/infrastructure/handler"
+	"github.com/damon-houk/wex-tag-transaction-system/internal/infrastructure/logger"
+	"github.com/damon-houk/wex-tag-transaction-system/internal/infrastructure/middleware"
 	"github.com/damon-houk/wex-tag-transaction-system/internal/mocks"
 	"github.com/dgraph-io/badger/v3"
 	"github.com/gorilla/mux"
@@ -42,17 +44,26 @@ func setupTestServer(exchangeRateRepo *mocks.MockExchangeRateRepository) (*httpt
 		return nil, nil, nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
+	// Create log
+	log := logger.NewJSONLogger(nil, logger.InfoLevel)
+
 	// Create repository and services
-	txRepo := db.NewBadgerTransactionRepository(badgerDB)
-	txService := service.NewTransactionService(txRepo)
-	conversionService := service.NewConversionService(txRepo, exchangeRateRepo)
+	txRepo := db.NewBadgerTransactionRepository(badgerDB, log)
+	txService := service.NewTransactionService(txRepo, log)
+	conversionService := service.NewConversionService(txRepo, exchangeRateRepo, log)
 
 	// Create handlers
-	txHandler := handler.NewTransactionHandler(txService)
-	conversionHandler := handler.NewConversionHandler(conversionService)
+	txHandler := handler.NewTransactionHandler(txService, log)
+	conversionHandler := handler.NewConversionHandler(conversionService, log)
 
 	// Setup router
 	router := mux.NewRouter()
+
+	// Add middleware
+	router.Use(middleware.RequestIDMiddleware)
+	router.Use(middleware.LoggingMiddleware(log))
+
+	// Register routes
 	txHandler.RegisterRoutes(router)
 	conversionHandler.RegisterRoutes(router)
 
@@ -148,8 +159,11 @@ func TestCurrencyConversion(t *testing.T) {
 	}
 	defer cleanup()
 
+	// Create logger for test
+	log := logger.NewJSONLogger(nil, logger.InfoLevel)
+
 	// Insert a test transaction directly into the database
-	txRepo := db.NewBadgerTransactionRepository(badgerDB)
+	txRepo := db.NewBadgerTransactionRepository(badgerDB, log)
 	testDate, err := time.Parse("2006-01-02", "2023-04-15")
 	if err != nil {
 		t.Fatalf("Failed to parse test date: %v", err)
@@ -160,7 +174,10 @@ func TestCurrencyConversion(t *testing.T) {
 		Description: "Test transaction",
 		Date:        testDate,
 		Amount:      123.45,
+		CreatedAt:   time.Now(),
 	}
+	testTx.CalculateTTL()
+
 	_, err = txRepo.Store(context.Background(), testTx)
 	assert.NoError(t, err, "Failed to store test transaction")
 
@@ -214,6 +231,9 @@ func TestErrorHandling(t *testing.T) {
 		t.Fatalf("Failed to setup test server: %v", err)
 	}
 	defer cleanup()
+
+	// Create logger for test
+	log := logger.NewJSONLogger(nil, logger.InfoLevel)
 
 	t.Run("Invalid transaction date", func(t *testing.T) {
 		invalidJSON := `{
@@ -310,9 +330,11 @@ func TestErrorHandling(t *testing.T) {
 			Description: "Test transaction",
 			Date:        testDate,
 			Amount:      123.45,
+			CreatedAt:   time.Now(),
 		}
+		testTx.CalculateTTL()
 
-		txRepo := db.NewBadgerTransactionRepository(badgerDB)
+		txRepo := db.NewBadgerTransactionRepository(badgerDB, log)
 		_, err := txRepo.Store(context.Background(), testTx)
 		assert.NoError(t, err, "Failed to store test transaction")
 
@@ -357,13 +379,15 @@ func TestErrorHandling(t *testing.T) {
 			Description: "Test transaction",
 			Date:        testDate,
 			Amount:      123.45,
+			CreatedAt:   time.Now(),
 		}
+		testTx.CalculateTTL()
 
-		txRepo := db.NewBadgerTransactionRepository(badgerDB)
+		txRepo := db.NewBadgerTransactionRepository(badgerDB, log)
 		_, err := txRepo.Store(context.Background(), testTx)
 		assert.NoError(t, err, "Failed to store test transaction")
 
-		// Use mock.Anything for the context and time parameters to avoid timezone issues
+		// Mock the repository to return error for XYZ currency
 		mockExchangeRateRepo.On("FindRate", mock.Anything, "XYZ", mock.Anything).
 			Return(nil, fmt.Errorf("no exchange rate available within 6 months of %s for currency XYZ",
 				testDate.Format("2006-01-02"))).Once()
